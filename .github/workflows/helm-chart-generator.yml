@@ -1,0 +1,472 @@
+name: 'helm chart generator'
+
+on:
+  workflow_call:
+    inputs:
+      app_name:
+        required: true
+        type: string
+
+jobs:
+  job1_create_helm_structure:
+    runs-on: ubuntu-latest
+    name: 'Create Helm Structure'
+    steps:
+      - name: 'Step 1 - Code Checkout'
+        uses: actions/checkout@v3
+      
+      - name: 'Step 2 - Check if ${{ inputs.app_name }} exists'
+        run: |
+            if [-d "${{ inputs.app_name }}"]; then
+              echo "${{ inputs.app_name }} directory exists. Stopping workflow."
+              exit 1
+            fi
+
+      - name: 'Step 3 - Create directories & files'
+        run: |
+            # Create Directories
+            echo "App name is set as ${{ inputs.app_name }}"
+            for dir in charts templates;
+              do
+                mkdir -p ${{ inputs.app_name }}/$dir
+              done
+        env:
+          app_name: ${{ inputs.app_name }}
+
+      - name: 'Step 4 - Create chart YAML'
+        run: |
+            cat << EOT >> ${{ inputs.app_name }}/Chart.yaml
+            apiVersion: v2
+            name: Application Name
+            description: A Helm chart for Kubernetes
+
+            # A chart can be either an 'application' or a 'library' chart.
+            #
+            # Application charts are a collection of templates that can be packaged into versioned archives
+            # to be deployed.
+            #
+            # Library charts provide useful utilities or functions for the chart developer. They're included as
+            # a dependency of application charts to inject those utilities and functions into the rendering
+            # pipeline. Library charts do not define any templates and therefore cannot be deployed.
+            type: application
+
+            # This is the chart version. This version number should be incremented each time you make changes
+            # to the chart and its templates, including the app version.
+            # Versions are expected to follow Semantic Versioning (https://semver.org/)
+            version: 0.1.0
+
+            # This is the version number of the application being deployed. This version number should be
+            # incremented each time you make changes to the application. Versions are not expected to
+            # follow Semantic Versioning. They should reflect the version the application is using.
+            # It is recommended to use it with quotes.
+            appVersion: "1.16.0"
+            EOT
+
+      - name: 'Step 5 - Create values YAML'
+        run: |
+            cat << EOT >> ${{ inputs.app_name }}/values.yaml
+            # Default values for App.
+            # This is a YAML-formatted file.
+            # Declare variables to be passed into your templates.
+
+            replicaCount: 1
+
+            image:
+              repository: nginx
+              pullPolicy: IfNotPresent
+              # Overrides the image tag whose default is the chart appVersion.
+              tag: ""
+
+            imagePullSecrets: []
+            nameOverride: ""
+            fullnameOverride: ""
+
+            serviceAccount:
+              # Specifies whether a service account should be created
+              create: true
+              # Annotations to add to the service account
+              annotations: {}
+              # The name of the service account to use.
+              # If not set and create is true, a name is generated using the fullname template
+              name: ""
+
+            podAnnotations: {}
+
+            podSecurityContext: {}
+              # fsGroup: 2000
+
+            securityContext: {}
+              # capabilities:
+              #   drop:
+              #   - ALL
+              # readOnlyRootFilesystem: true
+              # runAsNonRoot: true
+              # runAsUser: 1000
+
+            service:
+              type: ClusterIP
+              port: 80
+
+            ingress:
+              enabled: false
+              className: ""
+              annotations: {}
+                # kubernetes.io/ingress.class: nginx
+                # kubernetes.io/tls-acme: "true"
+              hosts:
+                - host: chart-example.local
+                  paths:
+                    - path: /
+                      pathType: ImplementationSpecific
+              tls: []
+              #  - secretName: chart-example-tls
+              #    hosts:
+              #      - chart-example.local
+
+            resources: {}
+              # We usually recommend not to specify default resources and to leave this as a conscious
+              # choice for the user. This also increases chances charts run on environments with little
+              # resources, such as Minikube. If you do want to specify resources, uncomment the following
+              # lines, adjust them as necessary, and remove the curly braces after 'resources:'.
+              # limits:
+              #   cpu: 100m
+              #   memory: 128Mi
+              # requests:
+              #   cpu: 100m
+              #   memory: 128Mi
+
+            autoscaling:
+              enabled: false
+              minReplicas: 1
+              maxReplicas: 100
+              targetCPUUtilizationPercentage: 80
+              # targetMemoryUtilizationPercentage: 80
+
+            nodeSelector: {}
+
+            tolerations: []
+
+            affinity: {}
+            EOT
+
+      - name: 'Step 6 - Create .helmignore file'
+        run: |
+            cat << EOT >> ${{ inputs.app_name }}/.helmignore
+            # Patterns to ignore when building packages.
+            # This supports shell glob matching, relative path matching, and
+            # negation (prefixed with !). Only one pattern per line.
+            .DS_Store
+            # Common VCS dirs
+            .git/
+            .gitignore
+            .bzr/
+            .bzrignore
+            .hg/
+            .hgignore
+            .svn/
+            # Common backup files
+            *.swp
+            *.bak
+            *.tmp
+            *.orig
+            *~
+            # Various IDEs
+            .project
+            .idea/
+            *.tmproj
+            .vscode/
+            EOT
+
+      - name: 'Step 7 - Create helper template'
+        run: |
+            cat << EOT >> ${{ inputs.app_name }}/templates/_helpers.tpl
+            {{/*
+            Expand the name of the chart.
+            */}}
+            {{- define "${{ inputs.app_name }}.name" -}}
+            {{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" }}
+            {{- end }}
+
+            {{/*
+            Create a default fully qualified app name.
+            We truncate at 63 chars because some Kubernetes name fields are limited to this (by the DNS naming spec).
+            If release name contains chart name it will be used as a full name.
+            */}}
+            {{- define "${{ inputs.app_name }}.fullname" -}}
+            {{- if .Values.fullnameOverride }}
+            {{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
+            {{- else }}
+            {{- $name := default .Chart.Name .Values.nameOverride }}
+            {{- if contains $name .Release.Name }}
+            {{- .Release.Name | trunc 63 | trimSuffix "-" }}
+            {{- else }}
+            {{- printf "%s-%s" .Release.Name $name | trunc 63 | trimSuffix "-" }}
+            {{- end }}
+            {{- end }}
+            {{- end }}
+
+            {{/*
+            Create chart name and version as used by the chart label.
+            */}}
+            {{- define "${{ inputs.app_name }}.chart" -}}
+            {{- printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
+            {{- end }}
+
+            {{/*
+            Common labels
+            */}}
+            {{- define "${{ inputs.app_name }}.labels" -}}
+            helm.sh/chart: {{ include "${{ inputs.app_name }}.chart" . }}
+            {{ include "${{ inputs.app_name }}.selectorLabels" . }}
+            {{- if .Chart.AppVersion }}
+            app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
+            {{- end }}
+            app.kubernetes.io/managed-by: {{ .Release.Service }}
+            {{- end }}
+
+            {{/*
+            Selector labels
+            */}}
+            {{- define "${{ inputs.app_name }}.selectorLabels" -}}
+            app.kubernetes.io/name: {{ include "${{ inputs.app_name }}.name" . }}
+            app.kubernetes.io/instance: {{ .Release.Name }}
+            {{- end }}
+
+            {{/*
+            Create the name of the service account to use
+            */}}
+            {{- define "${{ inputs.app_name }}.serviceAccountName" -}}
+            {{- if .Values.serviceAccount.create }}
+            {{- default (include "${{ inputs.app_name }}.fullname" .) .Values.serviceAccount.name }}
+            {{- else }}
+            {{- default "default" .Values.serviceAccount.name }}
+            {{- end }}
+            {{- end }}
+            EOT
+
+      - name: 'Step 8 - Create Deployment YAML'
+        run: |
+            cat << EOT >> ${{ inputs.app_name }}/templates/deployment.yaml
+            apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              name: {{ include "${{ inputs.app_name }}.fullname" . }}
+              labels:
+                {{- include "${{ inputs.app_name }}.labels" . | nindent 4 }}
+            spec:
+              {{- if not .Values.autoscaling.enabled }}
+              replicas: {{ .Values.replicaCount }}
+              {{- end }}
+              selector:
+                matchLabels:
+                  {{- include "${{ inputs.app_name }}.selectorLabels" . | nindent 6 }}
+              template:
+                metadata:
+                  {{- with .Values.podAnnotations }}
+                  annotations:
+                    {{- toYaml . | nindent 8 }}
+                  {{- end }}
+                  labels:
+                    {{- include "${{ inputs.app_name }}.selectorLabels" . | nindent 8 }}
+                spec:
+                  {{- with .Values.imagePullSecrets }}
+                  imagePullSecrets:
+                    {{- toYaml . | nindent 8 }}
+                  {{- end }}
+                  serviceAccountName: {{ include "${{ inputs.app_name }}.serviceAccountName" . }}
+                  securityContext:
+                    {{- toYaml .Values.podSecurityContext | nindent 8 }}
+                  containers:
+                    - name: {{ .Chart.Name }}
+                      securityContext:
+                        {{- toYaml .Values.securityContext | nindent 12 }}
+                      image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+                      imagePullPolicy: {{ .Values.image.pullPolicy }}
+                      ports:
+                        - name: http
+                          containerPort: {{ .Values.service.port }}
+                          protocol: TCP
+                      livenessProbe:
+                        httpGet:
+                          path: /
+                          port: http
+                      readinessProbe:
+                        httpGet:
+                          path: /
+                          port: http
+                      resources:
+                        {{- toYaml .Values.resources | nindent 12 }}
+                  {{- with .Values.nodeSelector }}
+                  nodeSelector:
+                    {{- toYaml . | nindent 8 }}
+                  {{- end }}
+                  {{- with .Values.affinity }}
+                  affinity:
+                    {{- toYaml . | nindent 8 }}
+                  {{- end }}
+                  {{- with .Values.tolerations }}
+                  tolerations:
+                    {{- toYaml . | nindent 8 }}
+                  {{- end }}
+            EOT
+
+      - name: 'Step 9 - Create hpa YAML'
+        run: |
+            cat << EOT >> ${{ inputs.app_name }}/templates/hpa.yaml
+            {{- if .Values.autoscaling.enabled }}
+            apiVersion: autoscaling/v2beta1
+            kind: HorizontalPodAutoscaler
+            metadata:
+              name: {{ include "${{ inputs.app_name }}.fullname" . }}
+              labels:
+                {{- include "${{ inputs.app_name }}.labels" . | nindent 4 }}
+            spec:
+              scaleTargetRef:
+                apiVersion: apps/v1
+                kind: Deployment
+                name: {{ include "${{ inputs.app_name }}.fullname" . }}
+              minReplicas: {{ .Values.autoscaling.minReplicas }}
+              maxReplicas: {{ .Values.autoscaling.maxReplicas }}
+              metrics:
+                {{- if .Values.autoscaling.targetCPUUtilizationPercentage }}
+                - type: Resource
+                  resource:
+                    name: cpu
+                    targetAverageUtilization: {{ .Values.autoscaling.targetCPUUtilizationPercentage }}
+                {{- end }}
+                {{- if .Values.autoscaling.targetMemoryUtilizationPercentage }}
+                - type: Resource
+                  resource:
+                    name: memory
+                    targetAverageUtilization: {{ .Values.autoscaling.targetMemoryUtilizationPercentage }}
+                {{- end }}
+            {{- end }}
+            EOT
+
+      - name: 'Step 10 - Create Ingress YAML'
+        run: |
+            cat << EOT >> ${{ inputs.app_name }}/templates/ingress.yaml
+            {{- if .Values.ingress.enabled -}}
+            {{- $fullName := include "${{ inputs.app_name }}.fullname" . -}}
+            {{- $svcPort := .Values.service.port -}}
+            {{- if and .Values.ingress.className (not (semverCompare ">=1.18-0" .Capabilities.KubeVersion.GitVersion)) }}
+              {{- if not (hasKey .Values.ingress.annotations "kubernetes.io/ingress.class") }}
+              {{- $_ := set .Values.ingress.annotations "kubernetes.io/ingress.class" .Values.ingress.className}}
+              {{- end }}
+            {{- end }}
+            {{- if semverCompare ">=1.19-0" .Capabilities.KubeVersion.GitVersion -}}
+            apiVersion: networking.k8s.io/v1
+            {{- else if semverCompare ">=1.14-0" .Capabilities.KubeVersion.GitVersion -}}
+            apiVersion: networking.k8s.io/v1beta1
+            {{- else -}}
+            apiVersion: extensions/v1beta1
+            {{- end }}
+            kind: Ingress
+            metadata:
+              name: {{ $fullName }}
+              labels:
+                {{- include "${{ inputs.app_name }}.labels" . | nindent 4 }}
+              {{- with .Values.ingress.annotations }}
+              annotations:
+                {{- toYaml . | nindent 4 }}
+              {{- end }}
+            spec:
+              {{- if and .Values.ingress.className (semverCompare ">=1.18-0" .Capabilities.KubeVersion.GitVersion) }}
+              ingressClassName: {{ .Values.ingress.className }}
+              {{- end }}
+              {{- if .Values.ingress.tls }}
+              tls:
+                {{- range .Values.ingress.tls }}
+                - hosts:
+                    {{- range .hosts }}
+                    - {{ . | quote }}
+                    {{- end }}
+                  secretName: {{ .secretName }}
+                {{- end }}
+              {{- end }}
+              rules:
+                {{- range .Values.ingress.hosts }}
+                - host: {{ .host | quote }}
+                  http:
+                    paths:
+                      {{- range .paths }}
+                      - path: {{ .path }}
+                        {{- if and .pathType (semverCompare ">=1.18-0" $.Capabilities.KubeVersion.GitVersion) }}
+                        pathType: {{ .pathType }}
+                        {{- end }}
+                        backend:
+                          {{- if semverCompare ">=1.19-0" $.Capabilities.KubeVersion.GitVersion }}
+                          service:
+                            name: {{ $fullName }}
+                            port:
+                              number: {{ $svcPort }}
+                          {{- else }}
+                          serviceName: {{ $fullName }}
+                          servicePort: {{ $svcPort }}
+                          {{- end }}
+                      {{- end }}
+                {{- end }}
+            {{- end }}
+            EOT
+      - name: 'Step 11 - Create Service YAML'
+        run: |
+            cat << EOT >> ${{ inputs.app_name }}/templates/service.yaml
+            apiVersion: v1
+            kind: Service
+            metadata:
+              name: {{ include "${{ inputs.app_name }}.fullname" . }}
+              labels:
+                {{- include "${{ inputs.app_name }}.labels" . | nindent 4 }}
+            spec:
+              type: {{ .Values.service.type }}
+              ports:
+                - port: {{ .Values.service.port }}
+                  targetPort: http
+                  protocol: TCP
+                  name: http
+              selector:
+                {{- include "${{ inputs.app_name }}.selectorLabels" . | nindent 4 }}
+            EOT
+
+      - name: 'Step 12 - Create Service Account YAML'
+        run: |
+            cat << EOT >> ${{ inputs.app_name }}/templates/serviceaccount.yaml
+            {{- if .Values.serviceAccount.create -}}
+            apiVersion: v1
+            kind: ServiceAccount
+            metadata:
+              name: {{ include "${{ inputs.app_name }}.serviceAccountName" . }}
+              labels:
+                {{- include "${{ inputs.app_name }}.labels" . | nindent 4 }}
+              {{- with .Values.serviceAccount.annotations }}
+              annotations:
+                {{- toYaml . | nindent 4 }}
+              {{- end }}
+            {{- end }}
+            EOT
+
+      - name: 'Step 13 - Create Service Account YAML'
+        run: |
+            cat << EOT >> ${{ inputs.app_name }}/README.md
+            ***${{ inputs.app_name }}
+            EOT
+
+      - name: 'Step 14 - Create Pull Request'
+        id: cpr
+        uses: peter-evans/create-pull-request@v4.2.3
+        with:
+          commit-message: "Created helm chart files"
+          title: "created helm charts for ${{ inputs.app_name }} application"
+          branch: helm-chart/${{ inputs.app_name }}
+          delete-branch: true
+          labels: |
+            automated pr
+          add-paths: |
+            ${{ inputs.app_name }}/*
+          body: |
+            Created Helm Chart Structure
+            - Chart Folder
+            - Templates Folder
+            - Chart YAML
+            - values YAML
+            - README.md
